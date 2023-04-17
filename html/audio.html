@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Audio Stream</title>
+</head>
+<body>
+    <button id="btn">start</button>
+
+    <script>
+        const sample_rate = 44100; // Hz
+
+        const ctx = new AudioContext();
+
+        // Necessary
+        const gain = ctx.createGain();
+        gain.gain.value = 1.0;
+        gain.connect( ctx.destination );
+
+        // this will get updated at every new fetch
+        // keep it accessible so we can stop() it
+        let active_node;
+        let playing = false;
+        let audioData;
+        let clickedAlready = false;
+        let ws;
+
+
+        const btn = document.getElementById( 'btn' );
+
+        btn.onclick = e => {
+            if(!clickedAlready)
+            {
+                ws = new WebSocket("ws://" + location.host + "/noise"); // Already has port in the host portion
+                ws.binaryType = "arraybuffer";
+
+                clickedAlready = true;
+                ws.onmessage = function(event) {
+                    console.log( "got" )
+                    audioData = new Float32Array(event.data);
+
+                    if(!playing)
+                    {
+                        console.log( "Calling play in onmessage" )
+                        play();
+                    }
+                    else
+                    {
+                        console.log( "NOT calling play" )
+                    }
+                }
+            }
+        }
+
+        function createSineWave(T, F) {
+            const audioContext = new AudioContext();
+            const sampleRate = audioContext.sampleRate;
+            const numSamples = T * sampleRate;
+            const buffer = audioContext.createBuffer(1, numSamples, sampleRate);
+            const channelData = buffer.getChannelData(0);
+            const amplitude = 1.0;
+
+            for (let i = 0; i < numSamples; i++) {
+                const t = i / sampleRate;
+                const value = amplitude * Math.sin(2 * Math.PI * F * t);
+                channelData[i] = value;
+            }
+
+            return buffer;
+        }
+
+        function concatFloat32Arrays( arr1, arr2 ) {
+            if( !arr1 || !arr1.length ) {
+                return arr2 && arr2.slice();
+            }
+            if( !arr2 || !arr2.length ) {
+                return arr1 && arr1.slice();
+            }
+            const out = new Float32Array( arr1.length + arr2.length );
+            out.set( arr1 );
+            out.set( arr2, arr1.length );
+            return out;
+        }
+
+        //https://stackoverflow.com/questions/60921018/web-audio-api-efficiently-play-a-pcm-stream
+
+
+        function play()
+        {
+            console.log( "play" )
+            if( audioData.length == 0 )
+            {
+                playing = false;
+                return;
+            }
+            playing = true;
+            
+            // create a new AudioBuffer
+            const aud_buf = ctx.createBuffer( 1, audioData.length, sample_rate );
+            // copy our fetched data to its first channel
+            aud_buf.copyToChannel( audioData, 0 );
+            audioData = new Float32Array(0);
+
+            // the actual player
+            active_node = ctx.createBufferSource();
+            active_node.buffer = aud_buf;
+            // active_node.buffer = createSineWave( 1, 10000 );
+            active_node.connect( gain );
+            active_node.start( 0 );
+            
+            console.log( "Setting event handler" );
+            active_node.addEventListener("ended", () => {
+                console.log(" Event!" );
+                play();
+            });
+        }
+
+    </script>
+</body>
+</html>
